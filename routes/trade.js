@@ -212,11 +212,21 @@ setTimeout(async () => {
     let mode = await getUserTradeMode(user_id);
     if (!mode) mode = await getTradeMode();
 
-    // payout percent by duration (unchanged)
-    const minSec = 5, maxSec = 120, minPct = 5, maxPct = 40;
-    let percent = minPct + ((safeDuration - minSec) * (maxPct - minPct) / (maxSec - minSec));
-    percent = Math.max(minPct, Math.min(maxPct, percent));
-    percent = Math.round(percent * 100) / 100;
+    // WITH THIS (Fixed Payout Map):
+    // Fixed Payout Map from Frontend UI (in decimal)
+    const FIXED_PROFIT_MAP = {
+      30: 0.30,  // 30%
+      60: 0.50,  // 50%
+      90: 0.70,  // 70%
+      120: 1.00, // 100%
+    };
+
+    // Calculate payout percent from the fixed map
+    // Default to 30% if duration is not 30, 60, 90, or 120 (e.g., if safeDuration was clamped to 5s)
+    let profitRate = FIXED_PROFIT_MAP[safeDuration] || 0.30; 
+    
+    // Convert rate to percentage (e.g., 0.30 -> 30)
+    let percent = profitRate * 100;
 
     // We may still look at the market to decide AUTO result,
     // but we will NOT use it for displayed result_price.
