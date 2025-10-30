@@ -8,6 +8,7 @@ const { authenticateToken } = require("../middleware/auth"); // keep if used
 
 /* -------------------- Helpers -------------------- */
 const ALLOWED_COINS = ["BTC", "ETH", "SOL", "XRP", "TON"];
+const ALLOWED_FOREX = ["XAU", "XAG", "WTI", "NATGAS", "XCU"];
 
 // Normalize "btc/usdt", "BTCUSDT", "btc-usdt" -> "BTC"
 function normalizeSymbol(input) {
@@ -35,34 +36,60 @@ function normalizeDirection(input) {
   return d.includes("SELL") ? "SELL" : "BUY";
 }
 
-// Symbol -> CoinGecko ID
-const CG_ID = {
-  BTC: "bitcoin",
-  ETH: "ethereum",
-  SOL: "solana",
-  XRP: "ripple",
-  TON: "the-open-network",
-  USDT: "tether",
+const TWELVE_API_KEY = process.env.TWELVE_API_KEY;
+
+// API Symbol -> Twelve Data Symbol (must be UPPERCASE)
+const TWELVE_SYMBOL = {
+  XAU: "XAU/USD",
+  XAG: "XAG/USD",
+  WTI: "CL=F",
+  NATGAS: "NG=F",
+  XCU: "HG=F",
 };
 
-// live USD price with multiple fallbacks (CoinGecko → Binance → Coinbase)
+// Helper to check if it's a known Forex/Commodity
+function isForexOrCommodity(sym) {
+  return !!TWELVE_SYMBOL[sym]; // Check uppercase symbol
+}
+
 async function getSpotUSD(symbol) {
-  const sym = String(symbol || "").toUpperCase();
+  const sym = String(symbol || "").toUpperCase(); // sym is "BTC", "XAU", etc.
 
-  // ----- CoinGecko -----
-  try {
-    let id = CG_ID[sym];
-    // TON sometimes listed as "toncoin"
-    if (!id && sym === "TON") id = "toncoin";
-    if (id) {
-      const url = `https://api.coingecko.com/api/v3/simple/price?ids=${id}&vs_currencies=usd`;
-      const { data } = await axios.get(url, { timeout: 7000 });
-      const price = Number(data?.[id]?.usd);
-      if (isFinite(price) && price > 0) return price;
+  // --- Check if Forex/Commodity (Twelve Data) ---
+  if (isForexOrCommodity(sym)) {
+    try {
+      if (!TWELVE_API_KEY) throw new Error("Twelve Data API Key not configured");
+      const twelveSymbol = TWELVE_SYMBOL[sym]; // e.g., "XAU/USD"
+      const priceUrl = `https://api.twelvedata.com/price?symbol=${twelveSymbol}&apikey=${TWELVE_API_KEY}`;
+      
+      console.log(`Fetching Twelve Data price for ${sym} (${twelveSymbol})`);
+      const { data: priceResponse } = await axios.get(priceUrl, { timeout: 7000 });
+      
+      const price = Number(priceResponse?.price);
+      if (isFinite(price) && price > 0) {
+        console.log(`Success (Twelve Data) ${sym}: ${price}`);
+        return price;
+      }
+      throw new Error("Invalid price from Twelve Data");
+    } catch (err) {
+      console.error(`Twelve Data fetch failed for ${sym}: ${err.message}`);
+      // Throw error because we know it's not crypto
+      throw new Error(`LIVE_PRICE_UNAVAILABLE (Forex: ${sym})`);
     }
-  } catch {}
+  }
 
-  // ----- Binance -----
+  // --- Check if Crypto (CoinGecko, Binance, Coinbase) ---
+  const cgId = CG_ID[sym];
+  if (cgId) {
+    try {
+      const url = `https://api.coingecko.com/api/v3/simple/price?ids=${cgId}&vs_currencies=usd`;
+      const { data } = await axios.get(url, { timeout: 7000 });
+      const price = Number(data?.[cgId]?.usd);
+      if (isFinite(price) && price > 0) return price;
+    } catch {}
+  }
+
+  // ----- Binance Fallback -----
   try {
     const url = `https://api.binance.com/api/v3/ticker/price?symbol=${sym}USDT`;
     const { data } = await axios.get(url, { timeout: 7000 });
@@ -70,7 +97,7 @@ async function getSpotUSD(symbol) {
     if (isFinite(price) && price > 0) return price;
   } catch {}
 
-  // ----- Coinbase -----
+  // ----- Coinbase Fallback -----
   try {
     const url = `https://api.coinbase.com/v2/prices/${sym}-USD/spot`;
     const { data } = await axios.get(url, {
@@ -81,17 +108,32 @@ async function getSpotUSD(symbol) {
     if (isFinite(price) && price > 0) return price;
   } catch {}
 
-  throw new Error("LIVE_PRICE_UNAVAILABLE");
+  throw new Error(`LIVE_PRICE_UNAVAILABLE (Crypto/All: ${sym})`);
 }
 
 // --- Fake result price helpers (tiny, realistic gap) ---
 function _priceDecimals(sym) {
-  return (sym === "XRP" || sym === "TON") ? 4 : 2;
+  if (sym === "XRP" || sym === "TON") return 4;
+  // All Commodities use 2 decimals
+  if (ALLOWED_FOREX.includes(sym)) return 2;
+  // Default (BTC, ETH, SOL)
+  return 2;
 }
-function _calcGap(startPrice) {
-  // 0.02%–0.08% of price, with a minimum tick so it visibly changes
-  const pct = 0.0002 + Math.random() * 0.0006;
-  const minTick = startPrice < 2 ? 0.0001 : startPrice < 100 ? 0.01 : 0.1;
+// WITH THIS (and pass 'sym' as an argument):
+function _calcGap(startPrice, sym) {
+  const pct = 0.0002 + Math.random() * 0.0006; // 0.02%–0.08%
+  let minTick;
+
+  if (ALLOWED_FOREX.includes(sym)) {
+    minTick = 0.01; // e.g., Gold $3978.37 -> $3978.38
+  } else if (sym === "XRP" || sym === "TON") {
+    minTick = 0.0001;
+  } else if (sym === "SOL") {
+    minTick = 0.01;
+  } else {
+    minTick = 0.1; // Default for BTC, ETH
+  }
+  
   const raw = startPrice * pct;
   return Math.max(raw, minTick);
 }
@@ -143,7 +185,7 @@ router.post("/", async (req, res) => {
     const normSymbol = normalizeSymbol(symbol || "BTC");  // e.g., "BTC"
     const normDirection = normalizeDirection(direction);  // "BUY"/"SELL"
 
-    if (!ALLOWED_COINS.includes(normSymbol)) {
+    if (!ALLOWED_COINS.includes(normSymbol) && !ALLOWED_FOREX.includes(normSymbol)) {
       return res.status(400).json({ error: "Invalid coin symbol" });
     }
 
@@ -262,7 +304,7 @@ const _calcGap = (sp) => {
   const raw = sp * pct;
   return Math.max(raw, minTick);
 };
-const _gap = _calcGap(start_price);
+const _gap = _calcGap(start_price, normSymbol);
 
 // If WIN: BUY -> higher than start, SELL -> lower than start
 // If LOSS: invert the direction relative to start
