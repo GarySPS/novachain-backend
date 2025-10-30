@@ -20,14 +20,11 @@ const CG_ID = {
 // Forex/Commodity Frontend API Symbol -> Twelve Data Symbol
 const TWELVE_SYMBOL = {
   // Commodities
-  xau: "XAU/USD",
-  xag: "XAG/USD",
-  wti: "CL=F", // Crude Oil Futures (Check if Twelve Data supports this ticker)
-             // Alternatively: Use an Oil ETF like 'USO' or Spot price 'BRENT'/'WTI' if available
-  natgas: "NG=F",// Natural Gas Futures (Check if Twelve Data supports this ticker)
-             // Alternatively: Use an ETF like 'UNG'
-  xcu: "HG=F", // Copper Futures (Check if Twelve Data supports this ticker)
-             // Alternatively: Use an ETF like 'CPER'
+  xau: "XAU/USD",    // This one works
+  xag: "XAG/USD",    // Standard spot symbol
+  wti: "WTI/USD",    // Standard spot symbol (instead of CL=F)
+  natgas: "NG/USD",    // Standard spot symbol (instead of NG=F)
+  xcu: "XCU/USD",    // Standard spot symbol (instead of HG=F)
 
   // Forex (Add more if needed)
   eurusd: "EUR/USD",
