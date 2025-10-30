@@ -166,7 +166,6 @@ router.get("/:symbol", async (req, res) => {
         if (!cgDataArr || cgDataArr.length === 0) throw new Error(`No market data found from CoinGecko for ${coingeckoId}`);
         const marketData = cgDataArr[0];
 
-        // WITH THIS (around line 171):
         priceData = {
             price: Number(marketData.current_price),
             high_24h: Number(marketData.high_24h),
