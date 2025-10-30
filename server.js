@@ -1,3 +1,4 @@
+//server.js
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
@@ -23,6 +24,7 @@ const convertRoutes = require('./routes/convert');
 const balanceHistoryRoutes = require('./routes/balanceHistory');
 const userRoutes = require('./routes/user');
 const uploadRoute = require('./routes/upload');
+const earnRoutes = require('./routes/earn');
 
 const app = express();
 
@@ -78,6 +80,7 @@ app.use('/api/profile', profileRoutes);
 app.use('/api/balance', balanceRoutes);
 app.use('/api/convert', convertRoutes);     
 app.use('/api/users', userRoutes);
+app.use('/api/earn', earnRoutes);
 
 // --------- BASIC ROOT CHECK ---------
 app.get("/", (req, res) => {
