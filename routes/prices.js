@@ -124,11 +124,16 @@ router.get("/:symbol", async (req, res) => {
         console.log(`Mapped priceData for ${requestedApiSymbol}:`, priceData);
  } else if (isCrypto(requestedApiSymbol)) {
         // --- Fetch Crypto Data using CoinGecko ---
-        console.log(`Identified ${requestedApiSymbol} as Crypto.`);
-        const coingeckoId = requestedApiSymbol; // Frontend sends the ID like 'bitcoin'
-        const symbol = Object.keys(CG_ID).find(key => CG_ID[key] === coingeckoId) || coingeckoId.toUpperCase();
+        console.log(`Identified ${requestedApiSymbol} as Crypto.`);
+        const coingeckoId = CG_ID[requestedApiSymbol]; // <-- THIS IS THE FIX
+        const symbol = Object.keys(CG_ID).find(key => CG_ID[key] === coingeckoId) || coingeckoId.toUpperCase();
 
-        const cgUrl = `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${coingeckoId}&order=market_cap_desc&per_page=1&page=1&sparkline=false&price_change_percentage=24h`;
+        // Check if the ID is valid
+        if (!coingeckoId) {
+          throw new Error(`Unsupported crypto symbol: ${requestedApiSymbol}`);
+        }
+
+        const cgUrl = `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${coingeckoId}&order=market_cap_desc&per_page=1&page=1&sparkline=false&price_change_percentage=24h`;
         console.log(`Fetching CoinGecko data for ${coingeckoId} from: ${cgUrl}`);
         const { data: cgDataArr } = await axios.get(cgUrl, { timeout: 8000 });
         console.log(`Received CoinGecko response for ${coingeckoId}:`, JSON.stringify(cgDataArr));
