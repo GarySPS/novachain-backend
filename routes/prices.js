@@ -6,15 +6,14 @@ const router = express.Router();
 // --- Config ---
 const TWELVE_API_KEY = process.env.TWELVE_API_KEY; // Read Twelve Data key from .env
 
-// --- Mappings ---
-// Crypto Frontend API Symbol -> CoinGecko ID
 const CG_ID = {
-  bitcoin: "bitcoin",
-  ethereum: "ethereum",
-  tether: "tether", // Assuming frontend sends 'tether' if needed
-  solana: "solana",
-  ripple: "ripple",
-  toncoin: "toncoin",
+  bitcoin: "bitcoin",
+  btc: "bitcoin", // Add this line
+  ethereum: "ethereum",
+  tether: "tether", // Assuming frontend sends 'tether' if needed
+  solana: "solana",
+  ripple: "ripple",
+  toncoin: "toncoin",
 };
 
 // --- Commodity Symbols for Twelve Data ---
