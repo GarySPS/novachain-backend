@@ -8,9 +8,9 @@ const TWELVE_API_KEY = process.env.TWELVE_API_KEY; // Read Twelve Data key from 
 
 const CG_ID = {
   bitcoin: "bitcoin",
-  btc: "bitcoin", // Add this line
+  btc: "bitcoin",
   ethereum: "ethereum",
-  tether: "tether", // Assuming frontend sends 'tether' if needed
+  tether: "tether",
   solana: "solana",
   ripple: "ripple",
   toncoin: "toncoin",
@@ -295,18 +295,18 @@ router.get("/", async (req, res) => {
 });
 
 const STATIC_PRICE_FALLBACKS = {
-  xau: 3985.12,
-  xag: 48.64,
+  xau: 4139.12,
+  xag: 51.14,
   wti: 61.52,
-  natgas: 2.97,
+  natgas: 4.27,
   xcu: 5.12,
   // Add crypto defaults
-  bitcoin: 109184.00,
-  btc: 109184.00,
-  ethereum: 5400.00,
-  solana: 250.00,
-  ripple: 1.00,
-  toncoin: 7.00,
+  bitcoin: 105184.00,
+  btc: 105184.00,
+  ethereum: 3572.00,
+  solana: 163.00,
+  ripple: 2.46,
+  toncoin: 3.00,
 };
 
 function getSyntheticData(symbol) {
