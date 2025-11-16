@@ -295,18 +295,20 @@ router.get("/", async (req, res) => {
 });
 
 const STATIC_PRICE_FALLBACKS = {
-  xau: 4139.12,
+  xau: 4039.12,
   xag: 51.14,
   wti: 61.52,
   natgas: 4.27,
   xcu: 5.12,
   // Add crypto defaults
-  bitcoin: 105184.00,
-  btc: 105184.00,
-  ethereum: 3572.00,
-  solana: 163.00,
+  bitcoin: 9561.74,
+  btc: 9561.78,
+  ethereum: 3272.00,
+  solana: 143.00,
   ripple: 2.46,
-  toncoin: 3.00,
+  toncoin: 2.80,
+  tether: 1.00,
+  usdt: 1.00,
 };
 
 function getSyntheticData(symbol) {
