@@ -41,174 +41,159 @@ const symbolCache = {}; // Cache structure: { 'bitcoin': { t: ms, price, high_24
 const LIST_REFRESH_MS = 60000;
 const SYMBOL_STALE_OK_MS = 5 * 60_000;
 
-// --- Routes ---
-
 /* GET /api/prices/:symbol - Handles Crypto, Forex, and Commodities */
 router.get("/:symbol", async (req, res) => {
-  const requestedApiSymbol = req.params.symbol.toLowerCase(); // e.g., 'bitcoin', 'xau', 'eurusd'
-  const now = Date.now();
+  const requestedApiSymbol = req.params.symbol.toLowerCase(); // e.g., 'bitcoin', 'xau', 'eurusd'
+  const now = Date.now();
 
-  console.log(`Received price request for: ${requestedApiSymbol}`);
+  console.log(`Received price request for: ${requestedApiSymbol}`);
 
-  // --- Check Cache First ---
-  if (symbolCache[requestedApiSymbol] && now - symbolCache[requestedApiSymbol].t < LIST_REFRESH_MS) {
-    console.log(`Serving cached data for ${requestedApiSymbol}`);
-    return res.json({
-      symbol: requestedApiSymbol,
-      ...symbolCache[requestedApiSymbol],
-      cached: true
-    });
-  }
+  // ===== FIX: Force USDT to always be $1.00 =====
+  if (requestedApiSymbol === 'usdt' || requestedApiSymbol === 'tether') {
+    return res.json({
+      symbol: requestedApiSymbol,
+      price: 1.00,
+      high_24h: 1.00,
+      low_24h: 1.00,
+      volume_24h: 100000000,
+      percent_change_24h: 0.00,
+      cached: true
+    });
+  }
+  // ==============================================
 
-  // --- Determine Asset Type and Fetch ---
-  let priceData = null; // Moved outside try block
+  // --- Check Cache First ---
+  if (symbolCache[requestedApiSymbol] && now - symbolCache[requestedApiSymbol].t < LIST_REFRESH_MS) {
+    console.log(`Serving cached data for ${requestedApiSymbol}`);
+    return res.json({
+      symbol: requestedApiSymbol,
+      ...symbolCache[requestedApiSymbol],
+      cached: true
+    });
+  }
 
-  try {
-    // Check if it's Forex or Commodity first
-    if (isForexOrCommodity(requestedApiSymbol)) {
-        console.log(`Identified ${requestedApiSymbol} as Forex/Commodity. Using Twelve Data.`);
-        if (!TWELVE_API_KEY) throw new Error("Twelve Data API Key not configured");
+  // --- Determine Asset Type and Fetch ---
+  let priceData = null;
 
-        const twelveSymbol = TWELVE_SYMBOL[requestedApiSymbol];
-        if (!twelveSymbol) throw new Error(`No Twelve Data symbol mapping for ${requestedApiSymbol}`);
+  try {
+    // Check if it's Forex or Commodity first
+    if (isForexOrCommodity(requestedApiSymbol)) {
+        console.log(`Identified ${requestedApiSymbol} as Forex/Commodity. Using Twelve Data.`);
+        if (!TWELVE_API_KEY) throw new Error("Twelve Data API Key not configured");
 
-        // --- Fetch from Twelve Data ---
-        let currentPrice = null;
-        let high_24h = null;
-        let low_24h = null;
-        let volume_24h = null;
-        let percent_change_24h = null;
+        const twelveSymbol = TWELVE_SYMBOL[requestedApiSymbol];
+        if (!twelveSymbol) throw new Error(`No Twelve Data symbol mapping for ${requestedApiSymbol}`);
 
-        try {
-            // 1. Get current price (1 API call)
-            const priceUrl = `https://api.twelvedata.com/price?symbol=${twelveSymbol}&apikey=${TWELVE_API_KEY}`;
-            console.log(`Fetching Twelve Data price for ${requestedApiSymbol} (${twelveSymbol})`);
-            const { data: priceResponse } = await axios.get(priceUrl, { timeout: 4000 });
-            console.log(`Received Twelve Data price response:`, JSON.stringify(priceResponse));
-            currentPrice = Number(priceResponse?.price);
+        // --- Fetch from Twelve Data ---
+        let currentPrice = null;
+        let high_24h = null;
+        let low_24h = null;
+        let volume_24h = null;
+        let percent_change_24h = null;
 
-            // 2. Get 24h stats (Quote Endpoint) (1 API call)
-            const quoteUrl = `https://api.twelvedata.com/quote?symbol=${twelveSymbol}&apikey=${TWELVE_API_KEY}`;
-            console.log(`Fetching Twelve Data quote for ${requestedApiSymbol} (${twelveSymbol})`);
-            const { data: quoteResponse } = await axios.get(quoteUrl, { timeout: 4000 });
-            console.log(`Received Twelve Data quote response:`, JSON.stringify(quoteResponse));
+        try {
+            // 1. Get current price (1 API call)
+            const priceUrl = `https://api.twelvedata.com/price?symbol=${twelveSymbol}&apikey=${TWELVE_API_KEY}`;
+            console.log(`Fetching Twelve Data price for ${requestedApiSymbol} (${twelveSymbol})`);
+            const { data: priceResponse } = await axios.get(priceUrl, { timeout: 4000 });
+            currentPrice = Number(priceResponse?.price);
 
-            if (quoteResponse) {
-                high_24h = Number(quoteResponse.high);
-                low_24h = Number(quoteResponse.low);
-                percent_change_24h = Number(quoteResponse.percent_change);
-                volume_24h = Number(quoteResponse.volume); 
-            }
+            // 2. Get 24h stats (Quote Endpoint) (1 API call)
+            const quoteUrl = `https://api.twelvedata.com/quote?symbol=${twelveSymbol}&apikey=${TWELVE_API_KEY}`;
+            console.log(`Fetching Twelve Data quote for ${requestedApiSymbol} (${twelveSymbol})`);
+            const { data: quoteResponse } = await axios.get(quoteUrl, { timeout: 4000 });
 
-        } catch (tdErr) {
-            console.warn(`Twelve Data request failed for ${requestedApiSymbol}: ${tdErr.message}`);
-            currentPrice = null; // Ensure data is null on failure
-        }
+            if (quoteResponse) {
+                high_24h = Number(quoteResponse.high);
+                low_24h = Number(quoteResponse.low);
+                percent_change_24h = Number(quoteResponse.percent_change);
+                volume_24h = Number(quoteResponse.volume); 
+            }
 
-        // --- Check for failure and use synthetic data ---
-        if (!isFinite(currentPrice) || currentPrice <= 0) {
-            console.warn(`⚠️ Twelve Data failed for ${requestedApiSymbol}. Using synthetic fallback.`);
-            priceData = getSyntheticData(requestedApiSymbol);
-        } else {
-            // --- Success! Map the data ---
-             priceData = {
-                price: currentPrice,
-                high_24h: isFinite(high_24h) ? high_24h : null,
-                low_24h: isFinite(low_24h) ? low_24h : null,
-                volume_24h: isFinite(volume_24h) ? volume_24h : null,
-                percent_change_24h: isFinite(percent_change_24h) ? percent_change_24h : null,
-            };
-        }
-        
-        console.log(`Mapped priceData for ${requestedApiSymbol}:`, priceData);
-    
-    } else if (isCrypto(requestedApiSymbol)) {
-        // --- Fetch Crypto Data using CoinGecko ---
-        console.log(`Identified ${requestedApiSymbol} as Crypto.`);
-        const coingeckoId = CG_ID[requestedApiSymbol]; // <-- FIX 1: Use the map
+        } catch (tdErr) {
+            console.warn(`Twelve Data request failed for ${requestedApiSymbol}: ${tdErr.message}`);
+            currentPrice = null; 
+        }
 
-        if (!coingeckoId) {
-          throw new Error(`Unsupported crypto symbol: ${requestedApiSymbol}`);
-        }
+        // --- Check for failure and use synthetic data ---
+        if (!isFinite(currentPrice) || currentPrice <= 0) {
+            console.warn(`⚠️ Twelve Data failed for ${requestedApiSymbol}. Using synthetic fallback.`);
+            priceData = getSyntheticData(requestedApiSymbol);
+        } else {
+            // --- Success! Map the data ---
+             priceData = {
+                price: currentPrice,
+                high_24h: isFinite(high_24h) ? high_24h : null,
+                low_24h: isFinite(low_24h) ? low_24h : null,
+                volume_24h: isFinite(volume_24h) ? volume_24h : null,
+                percent_change_24h: isFinite(percent_change_24h) ? percent_change_24h : null,
+            };
+        }
+        
+    } else if (isCrypto(requestedApiSymbol)) {
+        // --- Fetch Crypto Data using CoinGecko ---
+        console.log(`Identified ${requestedApiSymbol} as Crypto.`);
+        const coingeckoId = CG_ID[requestedApiSymbol];
 
-        try { // <--- FIX 2: Add inner try...catch
-          const cgUrl = `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${coingeckoId}&order=market_cap_desc&per_page=1&page=1&sparkline=false&price_change_percentage=24h`;
-          console.log(`Fetching CoinGecko data for ${coingeckoId} from: ${cgUrl}`);
-          const { data: cgDataArr } = await axios.get(cgUrl, { timeout: 8000 });
-          console.log(`Received CoinGecko response for ${coingeckoId}:`, JSON.stringify(cgDataArr));
+        if (!coingeckoId) {
+          throw new Error(`Unsupported crypto symbol: ${requestedApiSymbol}`);
+        }
 
-          if (!cgDataArr || cgDataArr.length === 0) throw new Error(`No market data found from CoinGecko for ${coingeckoId}`);
-          const marketData = cgDataArr[0]; // <-- FIX: Changed 'indata' to 'const marketData'
+        try {
+          const cgUrl = `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${coingeckoId}&order=market_cap_desc&per_page=1&page=1&sparkline=false&price_change_percentage=24h`;
+          console.log(`Fetching CoinGecko data for ${coingeckoId} from: ${cgUrl}`);
+          const { data: cgDataArr } = await axios.get(cgUrl, { timeout: 8000 });
 
-          priceData = {
-            price: Number(marketData.current_price), // <-- This will now work
-            high_24h: Number(marketData.high_24h),
-            low_24h: Number(marketData.low_24h),
-            volume_24h: Number(marketData.total_volume),
-            percent_change_24h: Number(marketData.price_change_percentage_24h),
-          };
-          
-        } catch (cgErr) {
-          console.warn(`CoinGecko request failed for ${requestedApiSymbol}: ${cgErr.message}`);
-          // Fall through, priceData will be null
-        }
+          if (!cgDataArr || cgDataArr.length === 0) throw new Error(`No market data found from CoinGecko for ${coingeckoId}`);
+          const marketData = cgDataArr[0];
 
-        // --- Check for failure and use synthetic data ---
-        if (!priceData || !isFinite(priceData.price) || priceData.price <= 0) {
-          console.warn(`⚠️ CoinGecko failed for ${requestedApiSymbol}. Using synthetic fallback.`);
-          priceData = getSyntheticData(requestedApiSymbol); 
-        }
+          priceData = {
+            price: Number(marketData.current_price),
+            high_24h: Number(marketData.high_24h),
+            low_24h: Number(marketData.low_24h),
+            volume_24h: Number(marketData.total_volume),
+            percent_change_24h: Number(marketData.price_change_percentage_24h),
+          };
+          
+        } catch (cgErr) {
+          console.warn(`CoinGecko request failed for ${requestedApiSymbol}: ${cgErr.message}`);
+        }
 
-        console.log(`Mapped CoinGecko priceData for ${coingeckoId}:`, priceData);
+        if (!priceData || !isFinite(priceData.price) || priceData.price <= 0) {
+          console.warn(`⚠️ CoinGecko failed for ${requestedApiSymbol}. Using synthetic fallback.`);
+          priceData = getSyntheticData(requestedApiSymbol); 
+        }
 
-    } else {
-        // --- Neither known Crypto nor Forex/Commodity ---
-        throw new Error(`Unsupported symbol/id: ${requestedApiSymbol}`);
-    }
+    } else {
+        throw new Error(`Unsupported symbol/id: ${requestedApiSymbol}`);
+    }
 
-    // --- Validate and Respond ---
-    // We trust our synthetic data, so we only validate if priceData is still null
-    if (!priceData) {
-        throw new Error(`Invalid or zero price data processed for ${requestedApiSymbol}`);
-    }
+    if (!priceData) {
+        throw new Error(`Invalid or zero price data processed for ${requestedApiSymbol}`);
+    }
 
-    // Update cache
-    symbolCache[requestedApiSymbol] = { t: now, ...priceData };
-    console.log(`Successfully processed data for ${requestedApiSymbol}, updating cache.`);
+    symbolCache[requestedApiSymbol] = { t: now, ...priceData };
+    return res.json({ symbol: requestedApiSymbol, ...priceData });
 
-    return res.json({ symbol: requestedApiSymbol, ...priceData });
+  } catch (err) {
+    console.error(`CRITICAL ERROR processing ${requestedApiSymbol}:`, err.message);
+    
+    if (symbolCache[requestedApiSymbol] && now - symbolCache[requestedApiSymbol].t <= SYMBOL_STALE_OK_MS) {
+      return res.json({
+        symbol: requestedApiSymbol,
+        ...symbolCache[requestedApiSymbol],
+        stale: true
+      });
+    }
 
-  } catch (err) {
-    // --- THIS IS THE FINAL CATCH BLOCK ---
-    // It will now only be triggered by a *truly* unexpected error, 
-// not by a simple API limit.
-    console.error(`CRITICAL ERROR processing ${requestedApiSymbol}:`, err.message);
-    
-    // Try to serve stale cache
-    if (symbolCache[requestedApiSymbol] && now - symbolCache[requestedApiSymbol].t <= SYMBOL_STALE_OK_MS) {
-      console.warn(`Serving stale cache for ${requestedApiSymbol} due to error.`);
-      return res.json({
-        symbol: requestedApiSymbol,
-        ...symbolCache[requestedApiSymbol],
-        stale: true
-      });
-    }
-
-    // --- Final Error ---
-    // If we have no stale cache, we *must* send the synthetic data as a last resort
-    try {
-      console.warn(`Serving synthetic data as last resort for ${requestedApiSymbol}.`);
-      const syntheticData = getSyntheticData(requestedApiSymbol);
-      return res.json({ symbol: requestedApiSymbol, ...syntheticData });
-    } catch (finalErr) {
-      // This should never happen, but if getSyntheticData fails
-      console.error(`FATAL: Could not even generate synthetic data for ${requestedApiSymbol}.`, finalErr.message);
-      return res.status(503).json({ error: "LIVE_DATA_UNAVAILABLE", symbol: requestedApiSymbol, detail: err.message });
-    }
-  }
+    try {
+      const syntheticData = getSyntheticData(requestedApiSymbol);
+      return res.json({ symbol: requestedApiSymbol, ...syntheticData });
+    } catch (finalErr) {
+      return res.status(503).json({ error: "LIVE_DATA_UNAVAILABLE", symbol: requestedApiSymbol, detail: err.message });
+    }
+  }
 });
-
-
 // --- Other routes (Chart, List) - Keep as they were if needed ---
 // You might need to adjust or remove these if they are no longer used or accurate
 // --- Add this back ---
