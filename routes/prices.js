@@ -230,20 +230,32 @@ router.get("/", async (req, res) => {
     }
 
     // --- Map CoinGecko data ---
-    const formattedData = cgDataArr.map(coin => ({
-        id: coin.id,
-        name: coin.name,
-        symbol: coin.symbol.toUpperCase(),
-        cmc_rank: coin.market_cap_rank,
-        quote: {
-            USD: {
-                price: coin.current_price,
-                volume_24h: coin.total_volume,
-                percent_change_24h: coin.price_change_percentage_24h, // Already included by CoinGecko
-                market_cap: coin.market_cap,
-            }
-        },
-    }));
+    const formattedData = cgDataArr.map(coin => {
+        
+        // FIX: Override USDT price/change in the list data
+        let finalPrice = coin.current_price;
+        let finalChange = coin.price_change_percentage_24h;
+        
+        if (coin.symbol.toUpperCase() === 'USDT' || coin.id === 'tether') {
+            finalPrice = 1.00;
+            finalChange = 0.00;
+        }
+        
+        return {
+            id: coin.id,
+            name: coin.name,
+            symbol: coin.symbol.toUpperCase(),
+            cmc_rank: coin.market_cap_rank,
+            quote: {
+                USD: {
+                    price: finalPrice, // Use the fixed price
+                    volume_24h: coin.total_volume,
+                    percent_change_24h: finalChange, // Use the fixed change (0%)
+                    market_cap: coin.market_cap,
+                }
+            },
+        };
+    });
 
     console.log(`Successfully formatted ${formattedData.length} coins.`);
 
