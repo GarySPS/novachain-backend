@@ -2,146 +2,101 @@
 
 const express = require('express');
 const router = express.Router();
-const pool = require('../db'); // Use 'pool' to match your balance.js
-const { authenticateToken } = require('../middleware/auth'); // Use 'authenticateToken' to match your balance.js
+const pool = require('../db'); 
+const { authenticateToken } = require('../middleware/auth');
 
 // ---
-// GET /api/earn/balance
-// Fetches the user's savings wallet balances
+// GET /api/earn/stakes
+// Fetches the user's ACTIVE stakes to show on the card
 // ---
-router.get('/balance', authenticateToken, async (req, res) => {
+router.get('/stakes', authenticateToken, async (req, res) => {
   const userId = req.user.id;
 
   try {
     const { rows } = await pool.query(
-      // We use 'symbol' as an alias for 'coin' to match the frontend's expected data structure
-      "SELECT coin as symbol, balance FROM earn_wallet WHERE user_id = $1 AND balance > 0",
+      `SELECT * FROM stakes 
+       WHERE user_id = $1 AND status = 'ACTIVE' 
+       ORDER BY created_at DESC`,
       [userId]
     );
     
-    // The frontend expects { assets: [...] }
-    res.json({ assets: rows });
+    // Calculate days left for display purposes
+    const stakesWithTime = rows.map(stake => {
+      const now = new Date();
+      const end = new Date(stake.end_date);
+      const diffTime = Math.abs(end - now);
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
+      return {
+        ...stake,
+        days_left: diffDays > 0 ? diffDays : 0
+      };
+    });
+
+    res.json(stakesWithTime);
   } catch (error) {
-    console.error("Error fetching earn balance:", error);
+    console.error("Error fetching stakes:", error);
     res.status(500).json({ error: "Server error" });
   }
 });
 
 // ---
-// POST /api/earn/deposit (Save)
-// Moves funds from the main 'user_balances' wallet to the 'earn_wallet'
+// POST /api/earn/stake
+// Locks funds from Main Wallet -> Creates a Stake Record
 // ---
-router.post('/deposit', authenticateToken, async (req, res) => {
+router.post('/stake', authenticateToken, async (req, res) => {
   const userId = req.user.id;
-  const { coin, amount } = req.body;
-  const depositAmount = parseFloat(amount);
+  // Frontend sends: { coin, amount, duration_days, daily_rate }
+  const { coin, amount, duration_days, daily_rate } = req.body;
+  const stakeAmount = parseFloat(amount);
 
-  if (!coin || isNaN(depositAmount) || depositAmount <= 0) {
-    return res.status(400).json({ success: false, error: "Invalid coin or amount." });
+  if (!coin || isNaN(stakeAmount) || stakeAmount <= 0 || !duration_days) {
+    return res.status(400).json({ success: false, error: "Invalid staking details." });
   }
 
-  const client = await pool.connect(); // Get client from pool for transaction
+  const client = await pool.connect();
 
   try {
-    await client.query('BEGIN'); // Start PostgreSQL transaction
+    await client.query('BEGIN');
 
-    // 1. Check if user has enough in their MAIN wallet (user_balances)
+    // 1. Check Main Wallet Balance (user_balances)
     const balanceRes = await client.query(
       "SELECT balance FROM user_balances WHERE user_id = $1 AND coin = $2 FOR UPDATE",
       [userId, coin]
     );
 
     const currentBalance = parseFloat(balanceRes.rows[0]?.balance || 0);
-    if (currentBalance < depositAmount) {
+
+    if (currentBalance < stakeAmount) {
       await client.query('ROLLBACK');
-      return res.status(400).json({ success: false, error: "Insufficient funds in main wallet." });
+      return res.status(400).json({ success: false, error: `Insufficient ${coin} balance.` });
     }
 
-    // 2. Subtract from MAIN wallet (user_balances)
+    // 2. Deduct from Main Wallet
     await client.query(
       "UPDATE user_balances SET balance = balance - $1 WHERE user_id = $2 AND coin = $3",
-      [depositAmount, userId, coin]
+      [stakeAmount, userId, coin]
     );
 
-    // 3. Add to EARN wallet (using PostgreSQL's ON CONFLICT)
-    await client.query(
-      `INSERT INTO earn_wallet (user_id, coin, balance) 
-       VALUES ($1, $2, $3) 
-       ON CONFLICT (user_id, coin) 
-       DO UPDATE SET balance = earn_wallet.balance + $3`,
-      [userId, coin, depositAmount]
-    );
+    // 3. Create Stake Record
+    // We calculate end_date by adding duration_days to NOW()
+    const insertQuery = `
+      INSERT INTO stakes (user_id, coin, amount, daily_rate, duration_days, start_date, end_date, status)
+      VALUES ($1, $2, $3, $4, $5, NOW(), NOW() + make_interval(days => $5), 'ACTIVE')
+      RETURNING *
+    `;
+    
+    await client.query(insertQuery, [userId, coin, stakeAmount, daily_rate, duration_days]);
 
-    // 4. If all good, commit the transaction
+    // 4. Commit Transaction
     await client.query('COMMIT');
-    res.json({ success: true });
+    res.json({ success: true, message: "Staked successfully" });
 
   } catch (error) {
-    await client.query('ROLLBACK'); // Roll back on any error
-    console.error("Error in earn deposit transaction:", error);
-    res.status(500).json({ success: false, error: "Transaction failed." });
+    await client.query('ROLLBACK');
+    console.error("Error in staking transaction:", error);
+    res.status(500).json({ success: false, error: "Staking failed. Please try again." });
   } finally {
-    client.release(); // Always release the client back to the pool
-  }
-});
-
-// ---
-// POST /api/earn/withdraw (Redeem)
-// Moves funds from the 'earn_wallet' back to the main 'user_balances' wallet
-// ---
-router.post('/withdraw', authenticateToken, async (req, res) => {
-  const userId = req.user.id;
-  const { coin, amount } = req.body;
-  const redeemAmount = parseFloat(amount);
-
-  if (!coin || isNaN(redeemAmount) || redeemAmount <= 0) {
-    return res.status(400).json({ success: false, error: "Invalid coin or amount." });
-  }
-
-  const client = await pool.connect(); // Get client for transaction
-
-  try {
-    await client.query('BEGIN');
-
-    // 1. Check if user has enough in their EARN wallet
-    const earnRes = await client.query(
-      "SELECT balance FROM earn_wallet WHERE user_id = $1 AND coin = $2 FOR UPDATE",
-      [userId, coin]
-    );
-
-    const currentEarnBalance = parseFloat(earnRes.rows[0]?.balance || 0);
-    if (currentEarnBalance < redeemAmount) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({ success: false, error: "Insufficient funds in savings." });
-    }
-
-    // 2. Subtract from EARN wallet
-    await client.query(
-      "UPDATE earn_wallet SET balance = balance - $1 WHERE user_id = $2 AND coin = $3",
-      [redeemAmount, userId, coin]
-    );
-
-    // 3. Add to MAIN wallet (user_balances)
-    // This assumes your user_balances table ALSO has a unique key on (user_id, coin)
-    await client.query(
-      `INSERT INTO user_balances (user_id, coin, balance) 
-       VALUES ($1, $2, $3) 
-       ON CONFLICT (user_id, coin) 
-       DO UPDATE SET balance = user_balances.balance + $3`,
-      [userId, coin, redeemAmount]
-    );
-
-    // 4. If all good, commit the transaction
-    await client.query('COMMIT');
-    res.json({ success: true });
-
-  } catch (error)
-    {
-    await client.query('ROLLBACK'); // Roll back on any error
-    console.error("Error in earn withdraw transaction:", error);
-    res.status(500).json({ success: false, error: "Transaction failed." });
-  } finally {
-    client.release(); // Always release the client
+    client.release();
   }
 });
 
