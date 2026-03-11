@@ -142,37 +142,46 @@ router.get("/:symbol", async (req, res) => {
         }
         
     } else if (isCrypto(requestedApiSymbol)) {
-        // --- Fetch Crypto Data using Binance to match TradingView ---
-        console.log(`Identified ${requestedApiSymbol} as Crypto.`);
-        const binanceSym = BINANCE_SYMBOL[requestedApiSymbol];
+    // --- Fetch Crypto Data using Binance to match TradingView ---
+    console.log(`Identified ${requestedApiSymbol} as Crypto.`);
+    const binanceSym = BINANCE_SYMBOL[requestedApiSymbol];
 
-        if (!binanceSym) {
-          throw new Error(`Unsupported crypto symbol: ${requestedApiSymbol}`);
-        }
+    if (!binanceSym) {
+        throw new Error(`Unsupported crypto symbol: ${requestedApiSymbol}`);
+    }
 
-        try {
-          const binUrl = `https://api.binance.com/api/v3/ticker/24hr?symbol=${binanceSym}`;
-          console.log(`Fetching Binance data for ${binanceSym} from: ${binUrl}`);
-          const { data: bData } = await axios.get(binUrl, { timeout: 8000 });
+    try {
+        // Primary Binance 24hr ticker
+        const binUrl = `https://api.binance.com/api/v3/ticker/24hr?symbol=${binanceSym}`;
+        console.log(`Fetching Binance 24hr data for ${binanceSym}`);
+        const { data: bData } = await axios.get(binUrl, { timeout: 8000 });
 
-          priceData = {
+        priceData = {
             price: Number(bData.lastPrice),
             high_24h: Number(bData.highPrice),
             low_24h: Number(bData.lowPrice),
             volume_24h: Number(bData.quoteVolume),
             percent_change_24h: Number(bData.priceChangePercent),
-          };
-          
-        } catch (err) {
-          console.warn(`Binance request failed for ${requestedApiSymbol}: ${err.message}`);
-        }
+        };
 
+        // Safety check: fallback retry only if price is invalid
         if (!priceData || !isFinite(priceData.price) || priceData.price <= 0) {
-          console.warn(`⚠️ Binance failed for ${requestedApiSymbol}. Using synthetic fallback.`);
-          priceData = getSyntheticData(requestedApiSymbol); 
+            console.warn(`⚠️ Binance price invalid for ${requestedApiSymbol}. Retrying simple lastPrice endpoint...`);
+            const retry = await axios.get(`https://api.binance.com/api/v3/ticker/price?symbol=${binanceSym}`);
+            priceData = {
+                price: Number(retry.data.price),
+                high_24h: Number(retry.data.price),
+                low_24h: Number(retry.data.price),
+                volume_24h: 0,
+                percent_change_24h: 0,
+            };
         }
 
-    } else {
+    } catch (err) {
+        console.error(`Binance fetch failed for ${requestedApiSymbol}: ${err.message}`);
+        throw new Error(`CRITICAL: Unable to fetch Binance price for ${requestedApiSymbol}`);
+    }
+} else {
         throw new Error(`Unsupported symbol/id: ${requestedApiSymbol}`);
     }
 
