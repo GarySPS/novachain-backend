@@ -122,4 +122,4 @@ const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`✅ Server running on port ${PORT}`);
 });
-}, 14 * 60 * 1000); // 14 minutes (Render sleeps at 15)
+
