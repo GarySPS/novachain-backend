@@ -67,11 +67,11 @@ router.post('/register', async (req, res) => {
     }
     if (retries === 10) return res.status(500).json({ error: "Could not assign unique user ID. Please try again." });
 
-    // Insert user with custom random ID
-   await pool.query(
-  'INSERT INTO users (id, username, email, password, balance, otp, verified) VALUES ($1, $2, $3, $4, $5, $6, $7)',
-  [userId, username, email, password, 0, otp, false]
-);
+    // Insert user and set verified to TRUE immediately
+    await pool.query(
+      'INSERT INTO users (id, username, email, password, balance, otp, verified) VALUES ($1, $2, $3, $4, $5, $6, $7)',
+      [userId, username, email, password, 0, null, true]
+    );
 
 
     // Insert balances for all coins (multi-coin support)
@@ -85,21 +85,8 @@ router.post('/register', async (req, res) => {
       )
     );
 
-    // Send OTP Email
-    const mailOptions = {
-      from: process.env.EMAIL_USER,
-      to: email,
-      subject: 'NovaChain OTP Verification',
-      text: `Hello ${username}, your OTP code is: ${otp}`
-    };
-    
-    try {
-      await transporter.sendMail(mailOptions);
-      res.status(201).json({ message: 'User registered! OTP sent.', userId });
-    } catch (err) {
-      console.error('❌ OTP email error:', err);
-      res.status(500).json({ error: 'Account created, but failed to send OTP email. Please try resending.' });
-    }
+    // Skip OTP email and finish registration
+    res.status(201).json({ message: 'User registered successfully!', userId });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
