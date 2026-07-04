@@ -235,9 +235,6 @@ router.get('/users/:id/trade-mode', requireAdminApiKey, async (req, res) => {
   }
 });
 
-// --- CHANGE ADMIN PASSWORD (secure) ---
-const bcrypt = require('bcrypt');
-
 // Change password route (POST /api/admin/change-password)
 router.post('/change-password', requireAdminApiKey, async (req, res) => {
   const { email, currentPassword, newPassword } = req.body;
