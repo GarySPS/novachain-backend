@@ -33,7 +33,10 @@ const allowedOrigins = [
   'http://localhost:3000',
   'https://novachain.pro',
   'https://www.novachain.pro',
-  'https://novachain-frontend-garys-projects-331bf079.vercel.app'
+  'https://novachain-frontend-garys-projects-331bf079.vercel.app',
+  'https://novachain-admin.vercel.app',
+  'https://adminnovachain.link',
+  'https://www.adminnovachain.link'
 ];
 
 app.use(cors({
