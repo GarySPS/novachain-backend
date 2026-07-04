@@ -17,6 +17,37 @@ function requireAdminApiKey(req, res, next) {
   return res.status(403).json({ error: "Admin token missing or invalid" });
 }
 
+// --- Admin API key middleware ---
+function requireAdminApiKey(req, res, next) {
+  if (req.headers['x-admin-token'] === ADMIN_API_TOKEN) {
+    return next();
+  }
+  return res.status(403).json({ error: "Admin token missing or invalid" });
+}
+
+// --- ADMIN LOGIN ---
+const bcrypt = require('bcrypt'); // Ensure bcrypt is available for the login check
+
+router.post('/login', async (req, res) => {
+  const { email, password } = req.body;
+  if (!email || !password) return res.status(400).json({ error: "Missing credentials" });
+
+  try {
+    const { rows } = await pool.query(`SELECT id, password_hash, email FROM users WHERE email = $1 AND is_admin = TRUE`, [email]);
+    const user = rows[0];
+    
+    if (!user) return res.status(401).json({ error: "Invalid credentials" });
+
+    const valid = await bcrypt.compare(password, user.password_hash);
+    if (!valid) return res.status(401).json({ error: "Invalid credentials" });
+
+    // Return the static admin token for the frontend to use in subsequent requests
+    res.json({ success: true, token: ADMIN_API_TOKEN, user: { email: user.email } });
+  } catch (err) {
+    res.status(500).json({ error: "DB error: " + err.message });
+  }
+});
+
 // --- GET all users (admin panel) ---
 router.get('/users', requireAdminApiKey, async (req, res) => {
   try {
